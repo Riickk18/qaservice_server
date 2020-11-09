@@ -35,7 +35,6 @@ app.post("/login",(req,res) => {
     pool.getConnection((err, connection) => {
         if(err) throw err;
         console.log('Solicitud con id ' + connection.threadId);
-        console.log(req.body);
         let username = req.body.persona.username;
         let password = req.body.persona.password;
         let query = "SELECT username, moderador from Persona WHERE username = '" + username + "' AND passwordUser = md5('" + password + "') LIMIT 1";
@@ -60,12 +59,23 @@ app.post("/register",(req,res) => {
         let username = req.body.persona.username;
         let password = req.body.persona.password;
         let moderador = req.body.persona.moderador;
-        let query = 'INSERT INTO Persona (username, passwordUser, moderador) VALUES ("' + username + '", md5("' + password + '"), ' + moderador + ')';
-        connection.query(query, (err, result) => {
-            connection.release(); //release connection
+        //Verifying if user exist in database
+        let queryUserExist = 'SELECT username FROM Persona WHERE username = "'+ username + '"'
+        connection.query(queryUserExist, (err, result) => {
             if(err) throw err;
-            res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({'loginResult': true, 'username': username, 'moderador': moderador}, null, 3));
+            if (result.length > 0){//If exist, return bad register
+                connection.release(); //release connection
+                res.setHeader('Content-Type', 'application/json');
+                res.end(JSON.stringify({'loginResult': false, "message": "El nombre de usuario ya existe, ingrese uno diferente"}, null, 3));
+            }else{//If username not exist yet, create user
+                let query = 'INSERT INTO Persona (username, passwordUser, moderador) VALUES ("' + username + '", md5("' + password + '"), ' + moderador + ')';
+                connection.query(query, (err, result) => {
+                    connection.release(); //release connection
+                    if(err) throw err;
+                    res.setHeader('Content-Type', 'application/json');
+                    res.end(JSON.stringify({'loginResult': true, 'username': username, 'moderador': moderador}, null, 3));
+                });
+            }
         });
     });
 });
@@ -110,14 +120,12 @@ app.get("/evento/unregistered/list",(req,res) => {
         connection.query('SELECT id from Persona WHERE username = "' + username + '" LIMIT 1', (err, result) => {
             if(err) throw err;
             connection.query('SELECT * from Persona_Evento WHERE idPersona = "' + result[0].id + '"', (err, result) => {
-                console.log(result.length);
                 if(err) throw err;
                 if (result.length === 0){
                     connection.query('SELECT id, nombre, DATE_FORMAT(fecha,"%d/%m/%Y") as fecha from Evento', (err, result) => {
                         connection.release(); //release connection
                         if(err) throw err;
                         res.setHeader('Content-Type', 'application/json');
-                        console.log(result);
                         res.end(JSON.stringify(result, null, 3));
                     });
                 }else{
@@ -125,7 +133,6 @@ app.get("/evento/unregistered/list",(req,res) => {
                         connection.release(); //release connection
                         if(err) throw err;
                         res.setHeader('Content-Type', 'application/json');
-                        console.log(result);
                         res.end(JSON.stringify(result, null, 3));
                     });
                 }
@@ -161,7 +168,13 @@ app.post("/evento/pregunta/list", (req, res) => {
         if (err) throw err;
         console.log('Solicitud con id ' + connection.threadId);
         let idEvento = req.body.idEvento;
-        let query = 'SELECT * from Pregunta WHERE idEvento = ' + (idEvento) + ' AND estatus = true';
+        let moderador = req.body.moderador;
+        var query = ""
+        if (moderador === 0){
+            query = 'SELECT id, contenido, DATE_FORMAT(fecha,"%d/%m/%Y") as fecha, estatus from Pregunta WHERE idEvento = ' + (idEvento) + ' AND estatus = true';
+        }else{
+            query = 'SELECT id, contenido, DATE_FORMAT(fecha,"%d/%m/%Y") as fecha, estatus from Pregunta WHERE idEvento = ' + (idEvento);
+        }
         connection.query(query, (err, result) => {
             connection.release(); //release connection
             if(err) throw err;
@@ -192,16 +205,20 @@ app.post("/evento/pregunta/create", (req, res) => {
     pool.getConnection((err, connection) => {
         if (err) throw err;
         console.log('Solicitud con id ' + connection.threadId);
+        let idEvento = req.body.idEvento;
         let contenido = req.body.contenido;
         let fecha = req.body.fecha;
-        let idPersona = req.body.idPersona;
-        let idEvento = req.doby.idEvento;
-        let query = 'INSERT INTO Pregunta (contenido, fecha, estatus, idPersona, idEvento) VALUES (' + contenido + ', ' + fecha + ', ' + idPersona.toString() + ', ' + idEvento.toString() + ')';
+        let username = req.body.username;
+        let query = 'SELECT id FROM Persona WHERE username = "' + username + '"'
         connection.query(query, (err, result) => {
-            connection.release(); //release connection
             if(err) throw err;
-            res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify(result, null, 3));
+            let query = 'INSERT INTO Pregunta (contenido, fecha, idPersona, idEvento) VALUES ("' + contenido + '", "' + fecha + '", ' + result[0].id.toString() + ', ' + idEvento.toString() + ')';
+            connection.query(query, (err, result) => {
+                connection.release(); //release connection
+                if(err) throw err;
+                res.setHeader('Content-Type', 'application/json');
+                res.end(JSON.stringify({'result': true}, null, 3));
+            });
         });
     });
 });
@@ -213,19 +230,22 @@ app.post("/evento/pregunta/respuesta/create", (req, res) => {
         console.log('Solicitud con id ' + connection.threadId);
         let contenido = req.body.contenido;
         let fecha = req.body.fecha;
-        let idPersona = req.body.idPersona;
-        let idEvento = req.doby.idEvento;
+        let username = req.body.username;
+        let idEvento = req.body.idEvento;
         let idPregunta = req.body.idPregunta;
-        let query = 'INSERT INTO Respuesta (contenido, fecha, idPersona, idEvento, idPregunta) VALUES (' + contenido + ', ' + fecha + ', ' + idPersona.toString() + ', ' + idEvento.toString() + ', ' + idPregunta.toString() + ')';
+        let query = 'SELECT id FROM Persona WHERE username = "'+ username +'"'
         connection.query(query, (err, result) => {
-            connection.release(); //release connection
             if(err) throw err;
-            let query = 'UPDATE Pregunta SET estatus = true WHERE id = ' + idPregunta.toString();
+            let query = 'INSERT INTO Respuesta (contenido, fecha, idPersona, idEvento, idPregunta) VALUES ("' + contenido + '", "' + fecha + '", ' + result[0].id + ', ' + idEvento + ', ' + idPregunta + ')';
             connection.query(query, (err, result) => {
-                connection.release(); //release connection
                 if(err) throw err;
-                res.setHeader('Content-Type', 'application/json');
-                res.end(JSON.stringify(result, null, 3));
+                let query = 'UPDATE Pregunta SET estatus = true WHERE id = ' + idPregunta.toString();
+                connection.query(query, (err, result) => {
+                    connection.release(); //release connection
+                    if(err) throw err;
+                    res.setHeader('Content-Type', 'application/json');
+                    res.end(JSON.stringify({"result": true}, null, 3));
+                });
             });
         });
     });
@@ -252,24 +272,24 @@ app.post("/evento/pregunta/list/denied", (req, res) => {
     pool.getConnection((err, connection) => {
         if (err) throw err;
         console.log('Solicitud con id ' + connection.threadId);
-        let idEvento = req.body.idEvento;
-        let query = 'SELECT * from Pregunta WHERE estatus = FALSE AND idEvento = ' + (idEvento).toString() 
+        let idPregunta = req.body.idPregunta;
+        let query = 'UPDATE Pregunta SET estatus = 0 WHERE id = '+ idPregunta.toString()
         connection.query(query, (err, result) => {
             connection.release(); //release connection
             if(err) throw err;
             res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify(result, null, 3));
+            res.end(JSON.stringify({"result": true}, null, 3));
         });
     });
 });
 
 //Lista de respuestas por pregunta
-app.post("/evento/pregunta/respuesta/list", (req, res) => {
+app.get("/evento/pregunta/respuesta/list", (req, res) => {
     pool.getConnection((err, connection) => {
         if (err) throw err;
         console.log('Solicitud con id ' + connection.threadId);
-        let idPregunta = req.body.idPregunta;
-        let query = 'SELECT * from Respuesta WHERE idPregunta = ' + (idPregunta).toString() 
+        let idPregunta = req.query.idPregunta;
+        let query = 'SELECT id, contenido, DATE_FORMAT(fecha,"%d/%m/%Y") as fecha from Respuesta WHERE idPregunta = ' + idPregunta 
         connection.query(query, (err, result) => {
             connection.release(); //release connection
             if(err) throw err;

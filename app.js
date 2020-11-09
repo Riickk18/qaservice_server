@@ -85,11 +85,17 @@ app.get("/evento/list",(req,res) => {
     pool.getConnection((err, connection) => {
         if(err) throw err;
         console.log('Solicitud con id ' + connection.threadId);
-        connection.query('SELECT id, nombre, DATE_FORMAT(fecha,"%d/%m/%Y") as fecha from Evento', (err, result) => {
-            connection.release(); //release connection
+        let username = req.query.username
+        let query = "SELECT id FROM Persona WHERE username = '" + username + "'"
+        connection.query(query, (err, result) => {
             if(err) throw err;
-            res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify(result, null, 3));
+            console.log(result)
+            connection.query('SELECT A.id, A.nombre, DATE_FORMAT(A.fecha,"%d/%m/%Y") as fecha from (SELECT DISTINCT A.* FROM Persona_Evento B, Evento A WHERE B.idPersona = '+ result[0].id + ' AND B.idEvento = A.id) A', (err, result) => {
+                connection.release(); //release connection
+                if(err) throw err;
+                res.setHeader('Content-Type', 'application/json');
+                res.end(JSON.stringify(result, null, 3));
+            });
         });
     });
 });
@@ -295,6 +301,27 @@ app.get("/evento/pregunta/respuesta/list", (req, res) => {
             if(err) throw err;
             res.setHeader('Content-Type', 'application/json');
             res.end(JSON.stringify(result, null, 3));
+        });
+    });
+});
+
+//Lista de respuestas por pregunta
+app.get("/evento/report", (req, res) => {
+    pool.getConnection((err, connection) => {
+        if (err) throw err;
+        console.log('Solicitud con id ' + connection.threadId);
+        let idEvento = req.query.idEvento;
+        let query = 'SELECT id, contenido, DATE_FORMAT(fecha,"%d/%m/%Y") as fecha FROM Pregunta WHERE estatus = false AND idEvento = ' + idEvento 
+        connection.query(query, (err, result) => {
+            let preguntas = result
+            if(err) throw err;
+            let query = 'SELECT SUM(if(estatus = true, 1, 0)) AS aceptadas, SUM(if(estatus = false, 1, 0)) AS denegadas, SUM(if(estatus = null, 1, 0)) AS nulas FROM Pregunta WHERE idEvento = '+ idEvento 
+            connection.query(query, (err, result) => {
+                connection.release(); //release connection
+                if(err) throw err;
+                res.setHeader('Content-Type', 'application/json');
+                res.end(JSON.stringify({"preguntas": preguntas, "values": {"aceptadas": result[0].aceptadas, "denegadas": result[0].denegadas, "nulas": result[0].nulas}}, null, 3));
+            });
         });
     });
 });
